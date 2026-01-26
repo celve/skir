@@ -83,7 +83,7 @@ fn draw_help_bar(frame: &mut Frame, area: Rect, app: &App) {
     }
 
     let help_text = match app.view {
-        View::PluginList => "/:search  i:install  d:delete  r:refresh  l:view  q:quit",
+        View::PluginList => "/:search  i:install  d:delete  r:refresh  u:update  l:view  q:quit",
         View::SkillList => "/:search  j/k:navigate  l:link  h:back  q:quit",
         View::InstallInput => unreachable!(),
     };

@@ -17,12 +17,28 @@ impl GitSource {
     /// Parse a git URL (HTTPS or SSH format).
     ///
     /// Supported formats:
+    /// - `owner/repo` (shorthand, defaults to GitHub)
     /// - `https://github.com/owner/repo.git`
     /// - `https://github.com/owner/repo`
     /// - `git@github.com:owner/repo.git`
     /// - `git@github.com:owner/repo`
     pub fn parse(url: &str) -> Result<Self, PluginError> {
         let url_trimmed = url.trim();
+
+        // Try shorthand format: owner/repo (defaults to GitHub)
+        if !url_trimmed.contains("://") && !url_trimmed.starts_with("git@") {
+            if let Some((owner, repo)) = url_trimmed.split_once('/') {
+                if !owner.is_empty() && !repo.is_empty() && !repo.contains('/') {
+                    let repo = repo.strip_suffix(".git").unwrap_or(repo);
+                    return Ok(Self {
+                        host: "github.com".to_string(),
+                        owner: owner.to_string(),
+                        repo: repo.to_string(),
+                        url: format!("https://github.com/{}/{}", owner, repo),
+                    });
+                }
+            }
+        }
 
         // Try HTTPS format: https://github.com/owner/repo.git
         if let Some(rest) = url_trimmed.strip_prefix("https://") {
@@ -143,5 +159,30 @@ mod tests {
         assert!(GitSource::parse("https://github.com").is_err());
         assert!(GitSource::parse("https://github.com/").is_err());
         assert!(GitSource::parse("https://github.com/owner").is_err());
+    }
+
+    #[test]
+    fn test_parse_shorthand() {
+        let source = GitSource::parse("anthropics/claude-code").unwrap();
+        assert_eq!(source.host, "github.com");
+        assert_eq!(source.owner, "anthropics");
+        assert_eq!(source.repo, "claude-code");
+        assert_eq!(source.url, "https://github.com/anthropics/claude-code");
+    }
+
+    #[test]
+    fn test_parse_shorthand_with_git_suffix() {
+        let source = GitSource::parse("anthropics/claude-code.git").unwrap();
+        assert_eq!(source.host, "github.com");
+        assert_eq!(source.owner, "anthropics");
+        assert_eq!(source.repo, "claude-code");
+        assert_eq!(source.url, "https://github.com/anthropics/claude-code");
+    }
+
+    #[test]
+    fn test_parse_shorthand_invalid() {
+        assert!(GitSource::parse("owner").is_err());
+        assert!(GitSource::parse("/repo").is_err());
+        assert!(GitSource::parse("owner/").is_err());
     }
 }

@@ -274,6 +274,7 @@ impl App {
 
         let plugin = &self.plugins[self.selected_plugin];
         let name = format!("{}/{}", plugin.owner, plugin.name());
+        self.status = Some(format!("Updating: {}...", name));
 
         match plugin.update() {
             Ok(updated_plugin) => {
