@@ -156,6 +156,16 @@ pub fn draw_skill_list(frame: &mut Frame, area: Rect, app: &mut App) {
                 spans.push(Span::styled("  [linked]", Style::default().fg(theme::SUCCESS)));
             }
 
+            // Show description for selected skill
+            if is_selected {
+                if let Some(desc) = &skill.description {
+                    spans.push(Span::styled(
+                        format!("  {}", desc),
+                        Style::default().fg(theme::TEXT_DIM),
+                    ));
+                }
+            }
+
             ListItem::new(Line::from(spans))
         })
         .collect();

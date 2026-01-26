@@ -4,6 +4,7 @@ use std::sync::Arc;
 use ratatui::widgets::ListState;
 
 use crate::plugin::{Plugin, PluginError, PluginManager};
+use crate::status::{StatusKind, StatusManager};
 
 /// The current view in the TUI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,13 +19,14 @@ pub struct App {
     pub manager: PluginManager,
     pub plugins: Vec<Arc<Plugin>>,
     pub installing: Vec<(String, Receiver<Result<Arc<Plugin>, PluginError>>)>,
+    pub updating: Vec<(usize, String, Receiver<Result<Plugin, PluginError>>)>,
     pub selected_plugin: usize,
     pub selected_skill: usize,
     pub plugin_list_state: ListState,
     pub skill_list_state: ListState,
     pub view: View,
     pub input: String,
-    pub status: Option<String>,
+    pub status: StatusManager,
     pub should_quit: bool,
     pub search_active: bool,
     pub search_query: String,
@@ -40,13 +42,14 @@ impl App {
             manager,
             plugins,
             installing: Vec::new(),
+            updating: Vec::new(),
             selected_plugin: 0,
             selected_skill: 0,
             plugin_list_state: ListState::default().with_selected(Some(0)),
             skill_list_state: ListState::default().with_selected(Some(0)),
             view: View::PluginList,
             input: String::new(),
-            status: None,
+            status: StatusManager::new(),
             should_quit: false,
             search_active: false,
             search_query: String::new(),
@@ -59,10 +62,10 @@ impl App {
             Ok(plugins) => {
                 self.plugins = plugins;
                 self.selected_plugin = self.selected_plugin.min(self.plugins.len().saturating_sub(1));
-                self.status = Some("Refreshed plugin list".to_string());
+                self.status.add("refresh", "Refreshed plugin list", StatusKind::Success);
             }
             Err(e) => {
-                self.status = Some(format!("Error: {}", e));
+                self.status.add("refresh", format!("Error: {}", e), StatusKind::Error);
             }
         }
     }
@@ -71,13 +74,13 @@ impl App {
     pub fn start_install(&mut self) {
         let url = self.input.trim().to_string();
         if url.is_empty() {
-            self.status = Some("URL cannot be empty".to_string());
+            self.status.add("install:error", "URL cannot be empty", StatusKind::Error);
             return;
         }
 
         self.input.clear();
         self.view = View::PluginList;
-        self.status = Some(format!("Installing {}...", url));
+        self.status.add(format!("install:{}", url), format!("Installing {}...", url), StatusKind::Progress);
 
         let manager = self.manager.clone();
         let (tx, rx) = std::sync::mpsc::channel();
@@ -104,13 +107,14 @@ impl App {
         // Remove completed in reverse order to preserve indices
         for (i, url, result) in completed.into_iter().rev() {
             self.installing.remove(i);
+            let status_id = format!("install:{}", url);
             match result {
                 Ok(plugin) => {
-                    self.status = Some(format!("Installed: {}/{}", plugin.owner, plugin.name()));
+                    self.status.add(&status_id, format!("Installed: {}/{}", plugin.owner, plugin.name()), StatusKind::Success);
                     self.plugins.push(plugin);
                 }
                 Err(e) => {
-                    self.status = Some(format!("Install failed ({}): {}", url, e));
+                    self.status.add(&status_id, format!("Install failed ({}): {}", url, e), StatusKind::Error);
                 }
             }
         }
@@ -124,26 +128,27 @@ impl App {
     /// Delete the currently selected plugin.
     pub fn delete_selected(&mut self) {
         if self.plugins.is_empty() {
-            self.status = Some("No plugin selected".to_string());
+            self.status.add("delete:error", "No plugin selected", StatusKind::Error);
             return;
         }
 
         if self.is_selected_installing() {
-            self.status = Some("Plugin is still installing".to_string());
+            self.status.add("delete:error", "Plugin is still installing", StatusKind::Error);
             return;
         }
 
         let plugin = &self.plugins[self.selected_plugin];
         let name = format!("{}/{}", plugin.owner, plugin.name());
+        let status_id = format!("delete:{}", name);
 
         match plugin.remove() {
             Ok(()) => {
                 self.plugins.remove(self.selected_plugin);
                 self.selected_plugin = self.selected_plugin.min(self.plugins.len().saturating_sub(1));
-                self.status = Some(format!("Deleted: {}", name));
+                self.status.add(&status_id, format!("Deleted: {}", name), StatusKind::Success);
             }
             Err(e) => {
-                self.status = Some(format!("Delete failed: {}", e));
+                self.status.add(&status_id, format!("Delete failed: {}", e), StatusKind::Error);
             }
         }
     }
@@ -238,7 +243,7 @@ impl App {
     /// Enter skill list view for selected plugin.
     pub fn enter_skill_list(&mut self) {
         if self.is_selected_installing() {
-            self.status = Some("Plugin is still installing".to_string());
+            self.status.add("view:error", "Plugin is still installing", StatusKind::Error);
             return;
         }
         if self.selected_plugin().is_some() {
@@ -263,26 +268,55 @@ impl App {
     /// Update the currently selected plugin.
     pub fn update_selected(&mut self) {
         if self.plugins.is_empty() {
-            self.status = Some("No plugin selected".to_string());
+            self.status.add("update:error", "No plugin selected", StatusKind::Error);
             return;
         }
 
         if self.is_selected_installing() {
-            self.status = Some("Plugin is still installing".to_string());
+            self.status.add("update:error", "Plugin is still installing", StatusKind::Error);
             return;
         }
 
-        let plugin = &self.plugins[self.selected_plugin];
+        let plugin = Arc::clone(&self.plugins[self.selected_plugin]);
         let name = format!("{}/{}", plugin.owner, plugin.name());
-        self.status = Some(format!("Updating: {}...", name));
+        let status_id = format!("update:{}", name);
+        self.status.add(&status_id, format!("Updating {}...", name), StatusKind::Progress);
 
-        match plugin.update() {
-            Ok(updated_plugin) => {
-                self.plugins[self.selected_plugin] = Arc::new(updated_plugin);
-                self.status = Some(format!("Updated: {}", name));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let idx = self.selected_plugin;
+
+        std::thread::spawn(move || {
+            let result = plugin.update();
+            let _ = tx.send(result);
+        });
+
+        self.updating.push((idx, name, rx));
+    }
+
+    /// Poll for completed background updates.
+    pub fn poll_updates(&mut self) {
+        let mut completed = Vec::new();
+
+        for (i, (idx, name, rx)) in self.updating.iter().enumerate() {
+            if let Ok(result) = rx.try_recv() {
+                completed.push((i, *idx, name.clone(), result));
             }
-            Err(e) => {
-                self.status = Some(format!("Update failed: {}", e));
+        }
+
+        // Remove completed in reverse order to preserve indices
+        for (i, idx, name, result) in completed.into_iter().rev() {
+            self.updating.remove(i);
+            let status_id = format!("update:{}", name);
+            match result {
+                Ok(updated_plugin) => {
+                    if idx < self.plugins.len() {
+                        self.plugins[idx] = Arc::new(updated_plugin);
+                    }
+                    self.status.add(&status_id, format!("Updated: {}", name), StatusKind::Success);
+                }
+                Err(e) => {
+                    self.status.add(&status_id, format!("Update failed: {}", e), StatusKind::Error);
+                }
             }
         }
     }
@@ -298,15 +332,16 @@ impl App {
         }
 
         let skill = &skills[self.selected_skill];
+        let status_id = format!("link:{}", skill.name);
         if skill.is_linked() {
             match skill.unlink() {
-                Ok(()) => self.status = Some(format!("Unlinked: {}", skill.name)),
-                Err(e) => self.status = Some(format!("Unlink failed: {}", e)),
+                Ok(()) => self.status.add(&status_id, format!("Unlinked: {}", skill.name), StatusKind::Success),
+                Err(e) => self.status.add(&status_id, format!("Unlink failed: {}", e), StatusKind::Error),
             }
         } else {
             match skill.link() {
-                Ok(()) => self.status = Some(format!("Linked: {}", skill.name)),
-                Err(e) => self.status = Some(format!("Link failed: {}", e)),
+                Ok(()) => self.status.add(&status_id, format!("Linked: {}", skill.name), StatusKind::Success),
+                Err(e) => self.status.add(&status_id, format!("Link failed: {}", e), StatusKind::Error),
             }
         }
     }

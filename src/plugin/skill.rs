@@ -30,6 +30,41 @@ pub fn remove_skill_symlink(qualified_name: &str) -> Result<(), PluginError> {
     Ok(())
 }
 
+/// Parse the description from YAML frontmatter in a SKILL.md file.
+fn parse_description(path: &Path) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    let content = content.trim_start();
+
+    // Check for YAML frontmatter delimiter
+    if !content.starts_with("---") {
+        return None;
+    }
+
+    // Find the closing delimiter
+    let rest = &content[3..];
+    let end = rest.find("---")?;
+    let frontmatter = &rest[..end];
+
+    // Look for description field
+    for line in frontmatter.lines() {
+        let line = line.trim();
+        if let Some(value) = line.strip_prefix("description:") {
+            let value = value.trim();
+            // Handle quoted strings
+            let value = value
+                .strip_prefix('"')
+                .and_then(|s| s.strip_suffix('"'))
+                .or_else(|| value.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+                .unwrap_or(value);
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+
+    None
+}
+
 /// A skill discovered within a plugin.
 #[derive(Debug)]
 pub struct Skill {
@@ -37,6 +72,8 @@ pub struct Skill {
     pub name: String,
     /// The path to the SKILL.md file.
     pub path: PathBuf,
+    /// The description from SKILL.md frontmatter.
+    pub description: Option<String>,
     /// The owner (username/org) of the parent plugin.
     owner: String,
     /// The repository name of the parent plugin.
@@ -46,9 +83,11 @@ pub struct Skill {
 impl Skill {
     /// Create a new skill with owner and repo information from its parent plugin.
     pub(crate) fn new(name: String, path: PathBuf, owner: String, repo: String) -> Self {
+        let description = parse_description(&path);
         Self {
             name,
             path,
+            description,
             owner,
             repo,
         }

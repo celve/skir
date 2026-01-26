@@ -11,6 +11,7 @@ use ratatui::prelude::*;
 mod app;
 mod handler;
 mod plugin;
+mod status;
 mod ui;
 
 use app::App;
@@ -35,6 +36,8 @@ fn main() -> io::Result<()> {
     // Main loop
     while !app.should_quit {
         app.poll_installs();
+        app.poll_updates();
+        app.status.clear_expired();
         terminal.draw(|frame| ui::draw(frame, &mut app))?;
 
         if event::poll(Duration::from_millis(16))? {

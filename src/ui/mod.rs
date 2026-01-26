@@ -9,6 +9,7 @@ use ratatui::{
 };
 
 use crate::app::{App, View};
+use crate::status::StatusKind;
 
 /// Main draw function.
 pub fn draw(frame: &mut Frame, app: &mut App) {
@@ -48,14 +49,13 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App) {
 
 /// Draw the status bar.
 fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
-    let status_text = app.status.as_deref().unwrap_or("Ready");
+    let status_text = app.status.get_display();
 
-    let color = if status_text.starts_with("Error") || status_text.contains("failed") {
-        theme::ERROR
-    } else if status_text == "Ready" {
-        theme::SUCCESS
-    } else {
-        theme::ACCENT
+    let color = match app.status.display_kind() {
+        StatusKind::Error => theme::ERROR,
+        StatusKind::Success => theme::SUCCESS,
+        StatusKind::Progress => theme::ACCENT,
+        StatusKind::Info => theme::TEXT_DIM,
     };
 
     let status = Paragraph::new(format!(" {}", status_text))
