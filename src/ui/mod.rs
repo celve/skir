@@ -2,7 +2,6 @@
 
 mod theme;
 mod lists;
-mod popup;
 
 use ratatui::{
     prelude::*,
@@ -29,10 +28,6 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     draw_content(frame, chunks[1], app);
     draw_status_bar(frame, chunks[2], app);
     draw_help_bar(frame, chunks[3], app);
-
-    if app.view == View::InstallInput {
-        popup::draw_install_input(frame, app);
-    }
 }
 
 /// Draw the title bar.
@@ -75,14 +70,42 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, app: &App) {
 
 /// Draw the help bar.
 fn draw_help_bar(frame: &mut Frame, area: Rect, app: &App) {
+    // Show search bar instead of help when searching
+    if app.search_active {
+        draw_search_bar(frame, area, app);
+        return;
+    }
+
+    // Show install bar when in install input mode
+    if app.view == View::InstallInput {
+        draw_install_bar(frame, area, app);
+        return;
+    }
+
     let help_text = match app.view {
-        View::PluginList => "i:install  d:delete  r:refresh  l:view  q:quit",
-        View::SkillList => "j/k:navigate  l:link  h:back  q:quit",
-        View::InstallInput => "enter:submit  esc:cancel",
+        View::PluginList => "/:search  i:install  d:delete  r:refresh  l:view  q:quit",
+        View::SkillList => "/:search  j/k:navigate  l:link  h:back  q:quit",
+        View::InstallInput => unreachable!(),
     };
 
     let help = Paragraph::new(help_text)
         .style(Style::default().fg(theme::TEXT_DIM))
         .alignment(Alignment::Center);
     frame.render_widget(help, area);
+}
+
+/// Draw the search bar.
+fn draw_search_bar(frame: &mut Frame, area: Rect, app: &App) {
+    let text = format!("/{}_", app.search_query);
+    let paragraph = Paragraph::new(text)
+        .style(Style::default().fg(theme::ACCENT));
+    frame.render_widget(paragraph, area);
+}
+
+/// Draw the install input bar.
+fn draw_install_bar(frame: &mut Frame, area: Rect, app: &App) {
+    let text = format!("git url: {}_", app.input);
+    let paragraph = Paragraph::new(text)
+        .style(Style::default().fg(theme::ACCENT));
+    frame.render_widget(paragraph, area);
 }

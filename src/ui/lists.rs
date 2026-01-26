@@ -2,7 +2,7 @@
 
 use ratatui::{
     prelude::*,
-    widgets::{List, ListItem, Paragraph},
+    widgets::{List, ListItem, ListState, Paragraph},
 };
 
 use crate::app::App;
@@ -20,7 +20,15 @@ fn selection_indicator(is_selected: bool) -> Span<'static> {
 
 /// Draw the plugin list.
 pub fn draw_plugin_list(frame: &mut Frame, area: Rect, app: &mut App) {
-    let header_text = format!("Plugins ({})", app.plugins.len() + app.installing.len());
+    let total_count = app.plugins.len() + app.installing.len();
+    let filtered_indices = app.filtered_plugin_indices();
+    let filtered_count = filtered_indices.len() + if app.search_query.is_empty() { app.installing.len() } else { 0 };
+
+    let header_text = if app.search_active && !app.search_query.is_empty() {
+        format!("Plugins ({} of {})", filtered_count, total_count)
+    } else {
+        format!("Plugins ({})", total_count)
+    };
 
     // Split area for header and list
     let chunks = Layout::default()
@@ -40,11 +48,11 @@ pub fn draw_plugin_list(frame: &mut Frame, area: Rect, app: &mut App) {
         return;
     }
 
-    let mut items: Vec<ListItem> = app
-        .plugins
+    // Build filtered list items
+    let mut items: Vec<ListItem> = filtered_indices
         .iter()
-        .enumerate()
-        .map(|(i, plugin)| {
+        .map(|&i| {
+            let plugin = &app.plugins[i];
             let is_selected = i == app.selected_plugin;
             let skills = plugin.skills();
             let total = skills.len();
@@ -66,25 +74,33 @@ pub fn draw_plugin_list(frame: &mut Frame, area: Rect, app: &mut App) {
         })
         .collect();
 
-    // Add installing entries after regular plugins
-    for (i, (url, _)) in app.installing.iter().enumerate() {
-        let idx = app.plugins.len() + i;
-        let is_selected = idx == app.selected_plugin;
+    // Add installing entries after regular plugins (only when not filtering)
+    if app.search_query.is_empty() {
+        for (i, (url, _)) in app.installing.iter().enumerate() {
+            let idx = app.plugins.len() + i;
+            let is_selected = idx == app.selected_plugin;
 
-        let line = Line::from(vec![
-            selection_indicator(is_selected),
-            Span::styled(
-                url.clone(),
-                Style::default().fg(if is_selected { theme::ACCENT } else { theme::TEXT }),
-            ),
-            Span::styled("  [installing]", Style::default().fg(theme::ACCENT)),
-        ]);
+            let line = Line::from(vec![
+                selection_indicator(is_selected),
+                Span::styled(
+                    url.clone(),
+                    Style::default().fg(if is_selected { theme::ACCENT } else { theme::TEXT }),
+                ),
+                Span::styled("  [installing]", Style::default().fg(theme::ACCENT)),
+            ]);
 
-        items.push(ListItem::new(line));
+            items.push(ListItem::new(line));
+        }
     }
 
+    // Find the position of selected item in the filtered list for proper scrolling
+    let selected_position = filtered_indices
+        .iter()
+        .position(|&i| i == app.selected_plugin);
+
+    let mut list_state = ListState::default().with_selected(selected_position);
     let list = List::new(items);
-    frame.render_stateful_widget(list, chunks[1], &mut app.plugin_list_state);
+    frame.render_stateful_widget(list, chunks[1], &mut list_state);
 }
 
 /// Draw the skill list for the selected plugin.
@@ -93,8 +109,14 @@ pub fn draw_skill_list(frame: &mut Frame, area: Rect, app: &mut App) {
         return;
     };
 
-    let header_text = format!("{}/{}", plugin.owner, plugin.name());
     let skills = plugin.skills();
+    let filtered_indices = app.filtered_skill_indices();
+
+    let header_text = if app.search_active && !app.search_query.is_empty() {
+        format!("{}/{} ({} of {} skills)", plugin.owner, plugin.name(), filtered_indices.len(), skills.len())
+    } else {
+        format!("{}/{}", plugin.owner, plugin.name())
+    };
 
     // Split area for header and list
     let chunks = Layout::default()
@@ -114,10 +136,11 @@ pub fn draw_skill_list(frame: &mut Frame, area: Rect, app: &mut App) {
         return;
     }
 
-    let items: Vec<ListItem> = skills
+    // Build filtered list items
+    let items: Vec<ListItem> = filtered_indices
         .iter()
-        .enumerate()
-        .map(|(i, skill)| {
+        .map(|&i| {
+            let skill = &skills[i];
             let is_selected = i == app.selected_skill;
             let is_linked = skill.is_linked();
 
@@ -137,6 +160,12 @@ pub fn draw_skill_list(frame: &mut Frame, area: Rect, app: &mut App) {
         })
         .collect();
 
+    // Find the position of selected item in the filtered list for proper scrolling
+    let selected_position = filtered_indices
+        .iter()
+        .position(|&i| i == app.selected_skill);
+
+    let mut list_state = ListState::default().with_selected(selected_position);
     let list = List::new(items);
-    frame.render_stateful_widget(list, chunks[1], &mut app.skill_list_state);
+    frame.render_stateful_widget(list, chunks[1], &mut list_state);
 }

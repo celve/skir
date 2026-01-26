@@ -26,6 +26,8 @@ pub struct App {
     pub input: String,
     pub status: Option<String>,
     pub should_quit: bool,
+    pub search_active: bool,
+    pub search_query: String,
 }
 
 impl App {
@@ -46,6 +48,8 @@ impl App {
             input: String::new(),
             status: None,
             should_quit: false,
+            search_active: false,
+            search_query: String::new(),
         })
     }
 
@@ -191,6 +195,46 @@ impl App {
         }
     }
 
+    /// Scroll down by half a page (10 items).
+    pub fn scroll_down(&mut self) {
+        const SCROLL_AMOUNT: usize = 10;
+        match self.view {
+            View::PluginList => {
+                let total = self.plugins.len() + self.installing.len();
+                if total > 0 {
+                    self.selected_plugin = (self.selected_plugin + SCROLL_AMOUNT).min(total - 1);
+                    self.plugin_list_state.select(Some(self.selected_plugin));
+                }
+            }
+            View::SkillList => {
+                if let Some(plugin) = self.selected_plugin() {
+                    let skill_count = plugin.skills().len();
+                    if skill_count > 0 {
+                        self.selected_skill = (self.selected_skill + SCROLL_AMOUNT).min(skill_count - 1);
+                        self.skill_list_state.select(Some(self.selected_skill));
+                    }
+                }
+            }
+            View::InstallInput => {}
+        }
+    }
+
+    /// Scroll up by half a page (10 items).
+    pub fn scroll_up(&mut self) {
+        const SCROLL_AMOUNT: usize = 10;
+        match self.view {
+            View::PluginList => {
+                self.selected_plugin = self.selected_plugin.saturating_sub(SCROLL_AMOUNT);
+                self.plugin_list_state.select(Some(self.selected_plugin));
+            }
+            View::SkillList => {
+                self.selected_skill = self.selected_skill.saturating_sub(SCROLL_AMOUNT);
+                self.skill_list_state.select(Some(self.selected_skill));
+            }
+            View::InstallInput => {}
+        }
+    }
+
     /// Enter skill list view for selected plugin.
     pub fn enter_skill_list(&mut self) {
         if self.is_selected_installing() {
@@ -263,6 +307,156 @@ impl App {
                 Ok(()) => self.status = Some(format!("Linked: {}", skill.name)),
                 Err(e) => self.status = Some(format!("Link failed: {}", e)),
             }
+        }
+    }
+
+    /// Enter search mode.
+    pub fn enter_search(&mut self) {
+        self.search_active = true;
+        self.search_query.clear();
+    }
+
+    /// Exit search mode.
+    pub fn exit_search(&mut self) {
+        self.search_active = false;
+        self.search_query.clear();
+    }
+
+    /// Add a character to the search query.
+    pub fn search_input(&mut self, c: char) {
+        self.search_query.push(c);
+        // Reset selection to first matching result
+        match self.view {
+            View::PluginList => {
+                self.selected_plugin = 0;
+                self.plugin_list_state.select(Some(0));
+            }
+            View::SkillList => {
+                self.selected_skill = 0;
+                self.skill_list_state.select(Some(0));
+            }
+            View::InstallInput => {}
+        }
+    }
+
+    /// Remove the last character from the search query.
+    pub fn search_backspace(&mut self) {
+        self.search_query.pop();
+    }
+
+    /// Get filtered plugin indices matching the search query.
+    pub fn filtered_plugin_indices(&self) -> Vec<usize> {
+        if self.search_query.is_empty() {
+            return (0..self.plugins.len()).collect();
+        }
+
+        let query = self.search_query.to_lowercase();
+        self.plugins
+            .iter()
+            .enumerate()
+            .filter(|(_, plugin)| {
+                let name = format!("{}/{}", plugin.owner, plugin.name()).to_lowercase();
+                name.contains(&query)
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Get filtered skill indices matching the search query.
+    pub fn filtered_skill_indices(&self) -> Vec<usize> {
+        let Some(plugin) = self.selected_plugin() else {
+            return Vec::new();
+        };
+
+        let skills = plugin.skills();
+        if self.search_query.is_empty() {
+            return (0..skills.len()).collect();
+        }
+
+        let query = self.search_query.to_lowercase();
+        skills
+            .iter()
+            .enumerate()
+            .filter(|(_, skill)| skill.name.to_lowercase().contains(&query))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Move selection up in filtered results.
+    pub fn select_prev_filtered(&mut self) {
+        match self.view {
+            View::PluginList => {
+                let filtered = self.filtered_plugin_indices();
+                if filtered.is_empty() {
+                    return;
+                }
+                let current_pos = filtered.iter().position(|&i| i == self.selected_plugin);
+                if let Some(pos) = current_pos {
+                    if pos > 0 {
+                        self.selected_plugin = filtered[pos - 1];
+                        self.plugin_list_state.select(Some(self.selected_plugin));
+                    }
+                } else if !filtered.is_empty() {
+                    self.selected_plugin = filtered[0];
+                    self.plugin_list_state.select(Some(self.selected_plugin));
+                }
+            }
+            View::SkillList => {
+                let filtered = self.filtered_skill_indices();
+                if filtered.is_empty() {
+                    return;
+                }
+                let current_pos = filtered.iter().position(|&i| i == self.selected_skill);
+                if let Some(pos) = current_pos {
+                    if pos > 0 {
+                        self.selected_skill = filtered[pos - 1];
+                        self.skill_list_state.select(Some(self.selected_skill));
+                    }
+                } else if !filtered.is_empty() {
+                    self.selected_skill = filtered[0];
+                    self.skill_list_state.select(Some(self.selected_skill));
+                }
+            }
+            View::InstallInput => {}
+        }
+    }
+
+    /// Move selection down in filtered results.
+    pub fn select_next_filtered(&mut self) {
+        match self.view {
+            View::PluginList => {
+                let filtered = self.filtered_plugin_indices();
+                if filtered.is_empty() {
+                    return;
+                }
+                let current_pos = filtered.iter().position(|&i| i == self.selected_plugin);
+                if let Some(pos) = current_pos {
+                    if pos < filtered.len() - 1 {
+                        self.selected_plugin = filtered[pos + 1];
+                        self.plugin_list_state.select(Some(self.selected_plugin));
+                    }
+                } else if !filtered.is_empty() {
+                    self.selected_plugin = filtered[0];
+                    self.plugin_list_state.select(Some(self.selected_plugin));
+                }
+            }
+            View::SkillList => {
+                let filtered = self.filtered_skill_indices();
+                if filtered.is_empty() {
+                    return;
+                }
+                let current_pos = filtered.iter().position(|&i| i == self.selected_skill);
+                if let Some(pos) = current_pos {
+                    if pos < filtered.len() - 1 {
+                        self.selected_skill = filtered[pos + 1];
+                        self.skill_list_state.select(Some(self.selected_skill));
+                    }
+                } else if !filtered.is_empty() {
+                    self.selected_skill = filtered[0];
+                    self.skill_list_state.select(Some(self.selected_skill));
+                }
+            }
+            View::InstallInput => {}
         }
     }
 }

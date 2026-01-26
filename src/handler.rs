@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::app::{App, View};
 
@@ -13,27 +13,43 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
 
 /// Handle keys in the plugin list view.
 fn handle_plugin_list_key(app: &mut App, key: KeyEvent) {
-    match key.code {
-        KeyCode::Char('q') => app.should_quit = true,
-        KeyCode::Char('j') | KeyCode::Down => app.select_next(),
-        KeyCode::Char('k') | KeyCode::Up => app.select_prev(),
-        KeyCode::Enter | KeyCode::Char('l') => app.enter_skill_list(),
-        KeyCode::Char('i') => app.enter_install_input(),
-        KeyCode::Char('d') => app.delete_selected(),
-        KeyCode::Char('r') => app.refresh(),
-        KeyCode::Char('u') => app.update_selected(),
+    if app.search_active {
+        handle_search_input(app, key);
+        return;
+    }
+
+    match (key.code, key.modifiers) {
+        (KeyCode::Char('q'), _) => app.should_quit = true,
+        (KeyCode::Char('j'), _) | (KeyCode::Down, _) => app.select_next(),
+        (KeyCode::Char('k'), _) | (KeyCode::Up, _) => app.select_prev(),
+        (KeyCode::Char('d'), KeyModifiers::CONTROL) => app.scroll_down(),
+        (KeyCode::Char('u'), KeyModifiers::CONTROL) => app.scroll_up(),
+        (KeyCode::Enter, _) | (KeyCode::Char('l'), _) => app.enter_skill_list(),
+        (KeyCode::Char('i'), _) => app.enter_install_input(),
+        (KeyCode::Char('d'), _) => app.delete_selected(),
+        (KeyCode::Char('r'), _) => app.refresh(),
+        (KeyCode::Char('u'), _) => app.update_selected(),
+        (KeyCode::Char('/'), _) => app.enter_search(),
         _ => {}
     }
 }
 
 /// Handle keys in the skill list view.
 fn handle_skill_list_key(app: &mut App, key: KeyEvent) {
-    match key.code {
-        KeyCode::Char('q') => app.should_quit = true,
-        KeyCode::Esc | KeyCode::Char('h') => app.back_to_plugin_list(),
-        KeyCode::Char('j') | KeyCode::Down => app.select_next(),
-        KeyCode::Char('k') | KeyCode::Up => app.select_prev(),
-        KeyCode::Char('l') => app.toggle_skill_link(),
+    if app.search_active {
+        handle_search_input(app, key);
+        return;
+    }
+
+    match (key.code, key.modifiers) {
+        (KeyCode::Char('q'), _) => app.should_quit = true,
+        (KeyCode::Esc, _) | (KeyCode::Char('h'), _) => app.back_to_plugin_list(),
+        (KeyCode::Char('j'), _) | (KeyCode::Down, _) => app.select_next(),
+        (KeyCode::Char('k'), _) | (KeyCode::Up, _) => app.select_prev(),
+        (KeyCode::Char('d'), KeyModifiers::CONTROL) => app.scroll_down(),
+        (KeyCode::Char('u'), KeyModifiers::CONTROL) => app.scroll_up(),
+        (KeyCode::Char('l'), _) => app.toggle_skill_link(),
+        (KeyCode::Char('/'), _) => app.enter_search(),
         _ => {}
     }
 }
@@ -44,11 +60,48 @@ fn handle_install_input_key(app: &mut App, key: KeyEvent) {
         KeyCode::Esc => app.back_to_plugin_list(),
         KeyCode::Enter => app.start_install(),
         KeyCode::Backspace => {
-            app.input.pop();
+            if app.input.is_empty() {
+                app.back_to_plugin_list();
+            } else {
+                app.input.pop();
+            }
         }
         KeyCode::Char(c) => {
             app.input.push(c);
         }
+        _ => {}
+    }
+}
+
+/// Handle keys in search mode.
+fn handle_search_input(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.exit_search();
+            // Also go back like 'h' would
+            if app.view == View::SkillList {
+                app.back_to_plugin_list();
+            }
+        }
+        KeyCode::Enter => {
+            app.exit_search();
+            // Also enter selection like 'l' would
+            match app.view {
+                View::PluginList => app.enter_skill_list(),
+                View::SkillList => app.toggle_skill_link(),
+                View::InstallInput => {}
+            }
+        }
+        KeyCode::Backspace => {
+            if app.search_query.is_empty() {
+                app.exit_search();
+            } else {
+                app.search_backspace();
+            }
+        }
+        KeyCode::Up => app.select_prev_filtered(),
+        KeyCode::Down => app.select_next_filtered(),
+        KeyCode::Char(c) => app.search_input(c),
         _ => {}
     }
 }
