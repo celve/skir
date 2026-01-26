@@ -1,14 +1,19 @@
 use std::io::{self, stdout};
+use std::time::Duration;
 
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyEventKind},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
-use ratatui::{
-    prelude::*,
-    widgets::{Block, Borders, Paragraph},
-};
+use ratatui::prelude::*;
+
+mod app;
+mod handler;
+mod plugin;
+mod ui;
+
+use app::App;
 
 fn main() -> io::Result<()> {
     // Set up panic hook to restore terminal on panic
@@ -19,26 +24,23 @@ fn main() -> io::Result<()> {
         original_hook(panic_info);
     }));
 
+    // Initialize app
+    let mut app = App::new().map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
     // Initialize terminal
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
     // Main loop
-    loop {
-        terminal.draw(|frame| {
-            let area = frame.area();
-            let text = Paragraph::new("Hello Ratatui!")
-                .block(Block::default().borders(Borders::ALL).title("silk"))
-                .alignment(Alignment::Center);
-            frame.render_widget(text, area);
-        })?;
+    while !app.should_quit {
+        app.poll_installs();
+        terminal.draw(|frame| ui::draw(frame, &mut app))?;
 
-        // Handle events
-        if event::poll(std::time::Duration::from_millis(16))? {
+        if event::poll(Duration::from_millis(16))? {
             if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                    break;
+                if key.kind == KeyEventKind::Press {
+                    handler::handle_key(&mut app, key);
                 }
             }
         }

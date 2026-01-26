@@ -6,3 +6,8 @@ edition = "2024"
 [dependencies]
 ratatui = "0.30"
 crossterm = "0.29"
+thiserror = "2.0"
+dirs = "6.0"
+
+[dev-dependencies]
+tempfile = "3.15"
