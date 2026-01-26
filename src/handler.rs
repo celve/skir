@@ -78,10 +78,6 @@ fn handle_search_input(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => {
             app.exit_search();
-            // Also go back like 'h' would
-            if app.view == View::SkillList {
-                app.back_to_plugin_list();
-            }
         }
         KeyCode::Enter => {
             app.exit_search();
