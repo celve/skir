@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use ratatui::widgets::ListState;
 
-use crate::plugin::{Installer, Plugin, PluginError};
+use crate::plugin::{Plugin, PluginError, PluginManager};
 
 /// The current view in the TUI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,7 +15,7 @@ pub enum View {
 
 /// Application state.
 pub struct App {
-    pub installer: Installer,
+    pub manager: PluginManager,
     pub plugins: Vec<Arc<Plugin>>,
     pub installing: Vec<(String, Receiver<Result<Arc<Plugin>, PluginError>>)>,
     pub selected_plugin: usize,
@@ -31,11 +31,11 @@ pub struct App {
 impl App {
     /// Create a new App instance.
     pub fn new() -> Result<Self, PluginError> {
-        let installer = Installer::new()?;
-        let plugins = installer.list_installed()?;
+        let manager = PluginManager::new()?;
+        let plugins = manager.list_installed()?;
 
         Ok(Self {
-            installer,
+            manager,
             plugins,
             installing: Vec::new(),
             selected_plugin: 0,
@@ -51,7 +51,7 @@ impl App {
 
     /// Refresh the plugin list.
     pub fn refresh(&mut self) {
-        match self.installer.list_installed() {
+        match self.manager.list_installed() {
             Ok(plugins) => {
                 self.plugins = plugins;
                 self.selected_plugin = self.selected_plugin.min(self.plugins.len().saturating_sub(1));
@@ -75,12 +75,12 @@ impl App {
         self.view = View::PluginList;
         self.status = Some(format!("Installing {}...", url));
 
-        let installer = self.installer.clone();
+        let manager = self.manager.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         let url_clone = url.clone();
 
         std::thread::spawn(move || {
-            let result = installer.install(&url_clone);
+            let result = manager.install(&url_clone);
             let _ = tx.send(result);
         });
 
@@ -132,7 +132,7 @@ impl App {
         let plugin = &self.plugins[self.selected_plugin];
         let name = format!("{}/{}", plugin.owner, plugin.name());
 
-        match self.installer.remove(plugin) {
+        match plugin.remove() {
             Ok(()) => {
                 self.plugins.remove(self.selected_plugin);
                 self.selected_plugin = self.selected_plugin.min(self.plugins.len().saturating_sub(1));
@@ -231,9 +231,9 @@ impl App {
         let plugin = &self.plugins[self.selected_plugin];
         let name = format!("{}/{}", plugin.owner, plugin.name());
 
-        match self.installer.update(plugin) {
+        match plugin.update() {
             Ok(updated_plugin) => {
-                self.plugins[self.selected_plugin] = updated_plugin;
+                self.plugins[self.selected_plugin] = Arc::new(updated_plugin);
                 self.status = Some(format!("Updated: {}", name));
             }
             Err(e) => {

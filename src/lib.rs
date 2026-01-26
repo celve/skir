@@ -1,3 +1,3 @@
 pub mod plugin;
 
-pub use plugin::{GitSource, Installer, Plugin, PluginError, Skill};
+pub use plugin::{GitSource, Plugin, PluginError, PluginManager, Skill};
