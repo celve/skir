@@ -325,23 +325,34 @@ impl App {
     /// Add a character to the search query.
     pub fn search_input(&mut self, c: char) {
         self.search_query.push(c);
-        // Reset selection to first matching result
-        match self.view {
-            View::PluginList => {
-                self.selected_plugin = 0;
-                self.plugin_list_state.select(Some(0));
-            }
-            View::SkillList => {
-                self.selected_skill = 0;
-                self.skill_list_state.select(Some(0));
-            }
-            View::InstallInput => {}
-        }
+        self.select_first_filtered();
     }
 
     /// Remove the last character from the search query.
     pub fn search_backspace(&mut self) {
         self.search_query.pop();
+        self.select_first_filtered();
+    }
+
+    /// Select the first item in filtered results.
+    fn select_first_filtered(&mut self) {
+        match self.view {
+            View::PluginList => {
+                let filtered = self.filtered_plugin_indices();
+                if let Some(&first) = filtered.first() {
+                    self.selected_plugin = first;
+                    self.plugin_list_state.select(Some(first));
+                }
+            }
+            View::SkillList => {
+                let filtered = self.filtered_skill_indices();
+                if let Some(&first) = filtered.first() {
+                    self.selected_skill = first;
+                    self.skill_list_state.select(Some(first));
+                }
+            }
+            View::InstallInput => {}
+        }
     }
 
     /// Get filtered plugin indices matching the search query.
