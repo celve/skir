@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use ratatui::widgets::ListState;
 
-use crate::plugin::{Plugin, PluginError, PluginManager};
+use crate::plugin::{GitSource, Plugin, PluginError, PluginManager};
 use crate::status::{StatusKind, StatusManager};
 
 /// The current view in the TUI.
@@ -75,6 +75,27 @@ impl App {
         let url = self.input.trim().to_string();
         if url.is_empty() {
             self.status.add("install:error", "URL cannot be empty", StatusKind::Error);
+            return;
+        }
+
+        // Parse URL to check if already installed
+        let source = match GitSource::parse(&url) {
+            Ok(s) => s,
+            Err(e) => {
+                self.status.add("install:error", format!("Invalid URL: {}", e), StatusKind::Error);
+                return;
+            }
+        };
+
+        // Check if already installed
+        if self.manager.is_installed(&source) {
+            self.input.clear();
+            self.view = View::PluginList;
+            self.status.add(
+                format!("install:{}", url),
+                format!("Already installed: {}/{}", source.owner, source.repo),
+                StatusKind::Info,
+            );
             return;
         }
 
