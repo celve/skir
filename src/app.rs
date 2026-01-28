@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use ratatui::widgets::ListState;
 
-use crate::plugin::{GitSource, Plugin, PluginError, PluginManager};
+use crate::plugin::{GitSource, LinkTarget, Plugin, PluginError, PluginManager};
 use crate::status::{StatusKind, StatusManager};
 
 /// The current view in the TUI.
@@ -11,6 +11,7 @@ use crate::status::{StatusKind, StatusManager};
 pub enum View {
     PluginList,
     SkillList,
+    LinkTargetSelect,
     InstallInput,
 }
 
@@ -30,6 +31,7 @@ pub struct App {
     pub should_quit: bool,
     pub search_active: bool,
     pub search_query: String,
+    pub link_target_selection: usize,
 }
 
 impl App {
@@ -53,6 +55,7 @@ impl App {
             should_quit: false,
             search_active: false,
             search_query: String::new(),
+            link_target_selection: 0,
         })
     }
 
@@ -194,6 +197,11 @@ impl App {
                     self.skill_list_state.select(Some(self.selected_skill));
                 }
             }
+            View::LinkTargetSelect => {
+                if self.link_target_selection > 0 {
+                    self.link_target_selection -= 1;
+                }
+            }
             View::InstallInput => {}
         }
     }
@@ -215,6 +223,12 @@ impl App {
                         self.selected_skill += 1;
                         self.skill_list_state.select(Some(self.selected_skill));
                     }
+                }
+            }
+            View::LinkTargetSelect => {
+                let target_count = LinkTarget::all().len();
+                if self.link_target_selection < target_count - 1 {
+                    self.link_target_selection += 1;
                 }
             }
             View::InstallInput => {}
@@ -241,7 +255,7 @@ impl App {
                     }
                 }
             }
-            View::InstallInput => {}
+            View::LinkTargetSelect | View::InstallInput => {}
         }
     }
 
@@ -257,7 +271,7 @@ impl App {
                 self.selected_skill = self.selected_skill.saturating_sub(SCROLL_AMOUNT);
                 self.skill_list_state.select(Some(self.selected_skill));
             }
-            View::InstallInput => {}
+            View::LinkTargetSelect | View::InstallInput => {}
         }
     }
 
@@ -342,8 +356,68 @@ impl App {
         }
     }
 
-    /// Toggle link/unlink for the currently selected skill.
-    pub fn toggle_skill_link(&mut self) {
+    /// Enter the link target selection view for the currently selected skill.
+    pub fn enter_link_target_view(&mut self) {
+        let Some(plugin) = self.selected_plugin() else {
+            return;
+        };
+        let skills = plugin.skills();
+        if skills.is_empty() || self.selected_skill >= skills.len() {
+            return;
+        }
+
+        self.link_target_selection = 0;
+        self.view = View::LinkTargetSelect;
+    }
+
+    /// Toggle link/unlink for the currently selected link target.
+    pub fn toggle_selected_link_target(&mut self) {
+        let Some(plugin) = self.selected_plugin() else {
+            return;
+        };
+        let skills = plugin.skills();
+        if skills.is_empty() || self.selected_skill >= skills.len() {
+            return;
+        }
+
+        let targets = LinkTarget::all();
+        if self.link_target_selection >= targets.len() {
+            return;
+        }
+
+        let target = targets[self.link_target_selection];
+        let skill = &skills[self.selected_skill];
+        let status_id = format!("link:{}:{}", target.display_name(), skill.name);
+
+        if skill.is_linked_to(target) {
+            match skill.unlink_from(target) {
+                Ok(()) => self.status.add(
+                    &status_id,
+                    format!("Unlinked {} from {}", skill.name, target.display_name()),
+                    StatusKind::Success,
+                ),
+                Err(e) => self.status.add(&status_id, format!("Unlink failed: {}", e), StatusKind::Error),
+            }
+        } else {
+            match skill.link_to(target) {
+                Ok(()) => self.status.add(
+                    &status_id,
+                    format!("Linked {} to {}", skill.name, target.display_name()),
+                    StatusKind::Success,
+                ),
+                Err(e) => self.status.add(&status_id, format!("Link failed: {}", e), StatusKind::Error),
+            }
+        }
+    }
+
+    /// Go back to skill list from link target selection view.
+    pub fn back_to_skill_list(&mut self) {
+        self.view = View::SkillList;
+    }
+
+    /// Link or unlink the currently selected skill to/from all targets.
+    /// If any target is not linked, links to all. If all are linked, unlinks from all.
+    pub fn link_to_all_targets(&mut self) {
         let Some(plugin) = self.selected_plugin() else {
             return;
         };
@@ -353,17 +427,47 @@ impl App {
         }
 
         let skill = &skills[self.selected_skill];
-        let status_id = format!("link:{}", skill.name);
-        if skill.is_linked() {
-            match skill.unlink() {
-                Ok(()) => self.status.add(&status_id, format!("Unlinked: {}", skill.name), StatusKind::Success),
-                Err(e) => self.status.add(&status_id, format!("Unlink failed: {}", e), StatusKind::Error),
+        let targets = LinkTarget::all();
+
+        // Check if all targets are linked
+        let all_linked = targets.iter().all(|t| skill.is_linked_to(*t));
+
+        if all_linked {
+            // Unlink from all
+            for target in targets {
+                if let Err(e) = skill.unlink_from(*target) {
+                    self.status.add(
+                        format!("link:all:{}", skill.name),
+                        format!("Unlink from {} failed: {}", target.display_name(), e),
+                        StatusKind::Error,
+                    );
+                    return;
+                }
             }
+            self.status.add(
+                format!("link:all:{}", skill.name),
+                format!("Unlinked {} from all targets", skill.name),
+                StatusKind::Success,
+            );
         } else {
-            match skill.link() {
-                Ok(()) => self.status.add(&status_id, format!("Linked: {}", skill.name), StatusKind::Success),
-                Err(e) => self.status.add(&status_id, format!("Link failed: {}", e), StatusKind::Error),
+            // Link to all unlinked targets
+            for target in targets {
+                if !skill.is_linked_to(*target) {
+                    if let Err(e) = skill.link_to(*target) {
+                        self.status.add(
+                            format!("link:all:{}", skill.name),
+                            format!("Link to {} failed: {}", target.display_name(), e),
+                            StatusKind::Error,
+                        );
+                        return;
+                    }
+                }
             }
+            self.status.add(
+                format!("link:all:{}", skill.name),
+                format!("Linked {} to all targets", skill.name),
+                StatusKind::Success,
+            );
         }
     }
 
@@ -408,7 +512,7 @@ impl App {
                     self.skill_list_state.select(Some(first));
                 }
             }
-            View::InstallInput => {}
+            View::LinkTargetSelect | View::InstallInput => {}
         }
     }
 
@@ -485,7 +589,7 @@ impl App {
                     self.skill_list_state.select(Some(self.selected_skill));
                 }
             }
-            View::InstallInput => {}
+            View::LinkTargetSelect | View::InstallInput => {}
         }
     }
 
@@ -524,7 +628,7 @@ impl App {
                     self.skill_list_state.select(Some(self.selected_skill));
                 }
             }
-            View::InstallInput => {}
+            View::LinkTargetSelect | View::InstallInput => {}
         }
     }
 }

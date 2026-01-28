@@ -6,6 +6,7 @@ use ratatui::{
 };
 
 use crate::app::App;
+use crate::plugin::LinkTarget;
 use super::theme;
 
 /// Create a selection indicator span.
@@ -137,12 +138,17 @@ pub fn draw_skill_list(frame: &mut Frame, area: Rect, app: &mut App) {
     }
 
     // Build filtered list items
+    let targets = LinkTarget::all();
+    let total_targets = targets.len();
+
     let items: Vec<ListItem> = filtered_indices
         .iter()
         .map(|&i| {
             let skill = &skills[i];
             let is_selected = i == app.selected_skill;
-            let is_linked = skill.is_linked();
+
+            // Count how many targets this skill is linked to
+            let linked_count = targets.iter().filter(|t| skill.is_linked_to(**t)).count();
 
             let mut spans = vec![
                 selection_indicator(is_selected),
@@ -152,8 +158,15 @@ pub fn draw_skill_list(frame: &mut Frame, area: Rect, app: &mut App) {
                 ),
             ];
 
-            if is_linked {
-                spans.push(Span::styled("  [linked]", Style::default().fg(theme::SUCCESS)));
+            // Show link status with count
+            if linked_count > 0 {
+                let status_text = format!("  [{}/{} linked]", linked_count, total_targets);
+                let color = if linked_count == total_targets {
+                    theme::SUCCESS // All linked = green
+                } else {
+                    theme::ACCENT // Partially linked = accent color
+                };
+                spans.push(Span::styled(status_text, Style::default().fg(color)));
             }
 
             // Show description for selected skill
@@ -176,6 +189,62 @@ pub fn draw_skill_list(frame: &mut Frame, area: Rect, app: &mut App) {
         .position(|&i| i == app.selected_skill);
 
     let mut list_state = ListState::default().with_selected(selected_position);
+    let list = List::new(items);
+    frame.render_stateful_widget(list, chunks[1], &mut list_state);
+}
+
+/// Draw the link target selection view.
+pub fn draw_link_target_select(frame: &mut Frame, area: Rect, app: &App) {
+    let Some(plugin) = app.selected_plugin() else {
+        return;
+    };
+
+    let skills = plugin.skills();
+    if skills.is_empty() || app.selected_skill >= skills.len() {
+        return;
+    }
+
+    let skill = &skills[app.selected_skill];
+
+    // Split area for header and list
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
+        .split(area);
+
+    // Draw header with skill name
+    let header = Paragraph::new(format!("Link {} to:", skill.name))
+        .style(Style::default().fg(theme::TEXT_DIM));
+    frame.render_widget(header, chunks[0]);
+
+    // Build list items for each target
+    let targets = LinkTarget::all();
+    let items: Vec<ListItem> = targets
+        .iter()
+        .enumerate()
+        .map(|(i, target)| {
+            let is_selected = i == app.link_target_selection;
+            let is_linked = skill.is_linked_to(*target);
+
+            let mut spans = vec![
+                selection_indicator(is_selected),
+                Span::styled(
+                    target.display_name(),
+                    Style::default().fg(if is_selected { theme::ACCENT } else { theme::TEXT }),
+                ),
+            ];
+
+            if is_linked {
+                spans.push(Span::styled("  [linked]", Style::default().fg(theme::SUCCESS)));
+            } else {
+                spans.push(Span::styled("  [not linked]", Style::default().fg(theme::TEXT_DIM)));
+            }
+
+            ListItem::new(Line::from(spans))
+        })
+        .collect();
+
+    let mut list_state = ListState::default().with_selected(Some(app.link_target_selection));
     let list = List::new(items);
     frame.render_stateful_widget(list, chunks[1], &mut list_state);
 }

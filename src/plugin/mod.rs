@@ -8,5 +8,5 @@ mod source;
 pub use error::PluginError;
 pub use manager::PluginManager;
 pub use plugin::Plugin;
-pub use skill::Skill;
+pub use skill::{LinkTarget, Skill};
 pub use source::GitSource;

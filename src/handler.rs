@@ -7,6 +7,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
     match app.view {
         View::PluginList => handle_plugin_list_key(app, key),
         View::SkillList => handle_skill_list_key(app, key),
+        View::LinkTargetSelect => handle_link_target_key(app, key),
         View::InstallInput => handle_install_input_key(app, key),
     }
 }
@@ -48,8 +49,21 @@ fn handle_skill_list_key(app: &mut App, key: KeyEvent) {
         (KeyCode::Char('k'), _) | (KeyCode::Up, _) => app.select_prev(),
         (KeyCode::Char('d'), KeyModifiers::CONTROL) => app.scroll_down(),
         (KeyCode::Char('u'), KeyModifiers::CONTROL) => app.scroll_up(),
-        (KeyCode::Char('l'), _) => app.toggle_skill_link(),
+        (KeyCode::Char('l'), _) | (KeyCode::Enter, _) => app.enter_link_target_view(),
+        (KeyCode::Char('L'), _) => app.link_to_all_targets(),
         (KeyCode::Char('/'), _) => app.enter_search(),
+        _ => {}
+    }
+}
+
+/// Handle keys in the link target selection view.
+fn handle_link_target_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Char('q') => app.should_quit = true,
+        KeyCode::Esc | KeyCode::Char('h') => app.back_to_skill_list(),
+        KeyCode::Char('j') | KeyCode::Down => app.select_next(),
+        KeyCode::Char('k') | KeyCode::Up => app.select_prev(),
+        KeyCode::Char('l') | KeyCode::Enter => app.toggle_selected_link_target(),
         _ => {}
     }
 }
@@ -84,8 +98,8 @@ fn handle_search_input(app: &mut App, key: KeyEvent) {
             // Also enter selection like 'l' would
             match app.view {
                 View::PluginList => app.enter_skill_list(),
-                View::SkillList => app.toggle_skill_link(),
-                View::InstallInput => {}
+                View::SkillList => app.enter_link_target_view(),
+                View::LinkTargetSelect | View::InstallInput => {}
             }
         }
         KeyCode::Backspace => {

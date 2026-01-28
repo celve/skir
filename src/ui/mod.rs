@@ -44,6 +44,7 @@ fn draw_content(frame: &mut Frame, area: Rect, app: &mut App) {
     match app.view {
         View::PluginList | View::InstallInput => lists::draw_plugin_list(frame, area, app),
         View::SkillList => lists::draw_skill_list(frame, area, app),
+        View::LinkTargetSelect => lists::draw_link_target_select(frame, area, app),
     }
 }
 
@@ -84,7 +85,8 @@ fn draw_help_bar(frame: &mut Frame, area: Rect, app: &App) {
 
     let help_text = match app.view {
         View::PluginList => "/:search  i:install  d:delete  r:refresh  u:update  l:view  q:quit",
-        View::SkillList => "/:search  j/k:navigate  l:link  h:back  q:quit",
+        View::SkillList => "/:search  j/k:navigate  l:link  L:link all  h:back  q:quit",
+        View::LinkTargetSelect => "j/k:navigate  l/Enter:toggle  Esc/h:back  q:quit",
         View::InstallInput => unreachable!(),
     };
 
