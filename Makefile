@@ -11,10 +11,10 @@ release:
 
 install: release
 	mkdir -p $(BINDIR)
-	cp target/release/silk $(BINDIR)/silk
+	cp target/release/skir $(BINDIR)/skir
 
 uninstall:
-	rm -f $(BINDIR)/silk
+	rm -f $(BINDIR)/skir
 
 clean:
 	cargo clean

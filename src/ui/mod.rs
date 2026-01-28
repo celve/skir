@@ -1,4 +1,4 @@
-//! UI rendering for the Silk TUI.
+//! UI rendering for the Skir TUI.
 
 mod theme;
 mod lists;
@@ -33,7 +33,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
 /// Draw the title bar.
 fn draw_title(frame: &mut Frame, area: Rect) {
-    let title = Paragraph::new("silk - Plugin Manager")
+    let title = Paragraph::new("skir - Plugin Manager")
         .style(Style::default().fg(theme::ACCENT).bold())
         .alignment(Alignment::Center);
     frame.render_widget(title, area);

@@ -21,12 +21,12 @@ pub struct PluginManager {
 impl PluginManager {
     /// Create a new plugin manager with the default cache directory.
     ///
-    /// The cache directory is `~/.cache/silk/repos` on Unix systems.
+    /// The cache directory is `~/.cache/skir/repos` on Unix systems.
     pub fn new() -> Result<Self, PluginError> {
         let cache_dir = dirs::home_dir()
             .ok_or(PluginError::CacheDirectoryNotFound)?
             .join(".cache")
-            .join("silk")
+            .join("skir")
             .join("repos");
         Ok(Self { cache_dir })
     }
