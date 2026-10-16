@@ -1,5 +1,7 @@
 # skir
 
+**Archived on 2026-10-16.** Linyu's skills now live in [celve/skills](https://github.com/celve/skills), which pins each upstream as a git submodule and links its skills into Claude Code and Codex.
+
 A terminal UI for managing Claude Code plugins and skills.
 
 ## Features
